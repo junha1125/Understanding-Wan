@@ -12,6 +12,10 @@ from .wan_t2v_14B import t2v_14B
 t2i_14B = copy.deepcopy(t2v_14B)
 t2i_14B.__name__ = 'Config: Wan T2I 14B'
 
+# the config of t2i_1.3B is the same as t2v_1.3B
+t2i_1_3B = copy.deepcopy(t2v_1_3B)
+t2i_1_3B.__name__ = 'Config: Wan T2I 1.3B'
+
 # the config of flf2v_14B is the same as i2v_14B
 flf2v_14B = copy.deepcopy(i2v_14B)
 flf2v_14B.__name__ = 'Config: Wan FLF2V 14B'
@@ -22,6 +26,7 @@ WAN_CONFIGS = {
     't2v-1.3B': t2v_1_3B,
     'i2v-14B': i2v_14B,
     't2i-14B': t2i_14B,
+    't2i-1.3B': t2i_1_3B,
     'flf2v-14B': flf2v_14B,
     'vace-1.3B': t2v_1_3B,
     'vace-14B': t2v_14B,
@@ -33,6 +38,8 @@ SIZE_CONFIGS = {
     '480*832': (480, 832),
     '832*480': (832, 480),
     '1024*1024': (1024, 1024),
+
+    '480*480': (480, 480),
 }
 
 MAX_AREA_CONFIGS = {
@@ -48,6 +55,7 @@ SUPPORTED_SIZES = {
     'i2v-14B': ('720*1280', '1280*720', '480*832', '832*480'),
     'flf2v-14B': ('720*1280', '1280*720', '480*832', '832*480'),
     't2i-14B': tuple(SIZE_CONFIGS.keys()),
+    't2i-1.3B': tuple(SIZE_CONFIGS.keys()),
     'vace-1.3B': ('480*832', '832*480'),
     'vace-14B': ('720*1280', '1280*720', '480*832', '832*480')
 }
