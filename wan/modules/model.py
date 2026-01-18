@@ -292,6 +292,16 @@ class WanAttentionBlock(nn.Module):
             seq_lens(Tensor): Shape [B], length of each sequence in batch
             grid_sizes(Tensor): Shape [B, 3], the second dimension contains (F, H, W)
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
+
+            | Component | Role      | Applied at                                       |
+            | --------- | --------- | ------------------------------------------------ |
+            | e[0]      | shift (β) | Added to normalized input before self-attention  |
+            | e[1]      | scale (γ) | Scales normalized input before self-attention    |
+            | e[2]      | gate (α)  | Scales self-attention output before residual add |
+            | e[3]      | shift (β) | Added to normalized input before FFN             |
+            | e[4]      | scale (γ) | Scales normalized input before FFN               |
+            | e[5]      | gate (α)  | Scales FFN output before residual add            |
+
         """
         assert e.dtype == torch.float32
         with amp.autocast(dtype=torch.float32):
@@ -454,14 +464,14 @@ class WanModel(ModelMixin, ConfigMixin):
 
         # embeddings
         self.patch_embedding = nn.Conv3d(
-            in_dim, dim, kernel_size=patch_size, stride=patch_size)
+            in_dim, dim, kernel_size=patch_size, stride=patch_size) # ex, Conv3d(16, 1536, kernel_size=(1, 2, 2), stride=(1, 2, 2))
         self.text_embedding = nn.Sequential(
             nn.Linear(text_dim, dim), nn.GELU(approximate='tanh'),
-            nn.Linear(dim, dim))
+            nn.Linear(dim, dim)) # ex, Sequential( (0): Linear(in=4096, out=1536) (1): GELU (2): Linear(in=1536, out=1536) )
 
         self.time_embedding = nn.Sequential(
-            nn.Linear(freq_dim, dim), nn.SiLU(), nn.Linear(dim, dim))
-        self.time_projection = nn.Sequential(nn.SiLU(), nn.Linear(dim, dim * 6))
+            nn.Linear(freq_dim, dim), nn.SiLU(), nn.Linear(dim, dim)) # Sequential( (0): Linear(in=256, out=1536) (1): SiLU() (2): Linear(in=1536, out=1536) )
+        self.time_projection = nn.Sequential(nn.SiLU(), nn.Linear(dim, dim * 6)) # (0) SiLU (1): Linear(in=1536, out=9216, bias=True)
 
         # blocks
         cross_attn_type = 't2v_cross_attn' if model_type == 't2v' else 'i2v_cross_attn'
@@ -472,7 +482,7 @@ class WanModel(ModelMixin, ConfigMixin):
         ])
 
         # head
-        self.head = Head(dim, out_dim, patch_size, eps)
+        self.head = Head(dim, out_dim, patch_size, eps) # (0) WanLayerNorm (1) Linear(in=1536, out=64)
 
         # buffers (don't use register_buffer otherwise dtype will be changed in to())
         assert (dim % num_heads) == 0 and (dim // num_heads) % 2 == 0
@@ -482,10 +492,10 @@ class WanModel(ModelMixin, ConfigMixin):
             rope_params(1024, 2 * (d // 6)),
             rope_params(1024, 2 * (d // 6))
         ],
-                               dim=1)
+                               dim=1) # Frequency parameters for Video RoPE
 
         if model_type == 'i2v' or model_type == 'flf2v':
-            self.img_emb = MLPProj(1280, dim, flf_pos_emb=model_type == 'flf2v')
+            self.img_emb = MLPProj(1280, dim, flf_pos_emb=model_type == 'flf2v') # CLIP features to extra 'context' tokens 
 
         # initialize weights
         self.init_weights()
@@ -531,22 +541,22 @@ class WanModel(ModelMixin, ConfigMixin):
             x = [torch.cat([u, v], dim=0) for u, v in zip(x, y)]
 
         # embeddings
-        x = [self.patch_embedding(u.unsqueeze(0)) for u in x]
+        x = [self.patch_embedding(u.unsqueeze(0)) for u in x] # x[0].shape = torch.Size([1=BS, 1536=Dim, 1=Frames, 30, 52])
         grid_sizes = torch.stack(
-            [torch.tensor(u.shape[2:], dtype=torch.long) for u in x])
-        x = [u.flatten(2).transpose(1, 2) for u in x]
-        seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long)
+            [torch.tensor(u.shape[2:], dtype=torch.long) for u in x]) # tensor([[ 1, 30, 52]])
+        x = [u.flatten(2).transpose(1, 2) for u in x] # x[0].shape = torch.Size([1, 1560=#Seq, 1536=Dim])
+        seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long) # tensor([1560])
         assert seq_lens.max() <= seq_len
         x = torch.cat([
-            torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))],
+            torch.cat([u, u.new_zeros(1, seq_len - u.size(1), u.size(2))], # u.new_zeros .. = tensor([], size=(1, 0, 1536)
                       dim=1) for u in x
-        ])
+        ]) # x.shape = torch.Size([1, 1560=#Seq, 1536=Dim])
 
         # time embeddings
         with amp.autocast(dtype=torch.float32):
             e = self.time_embedding(
-                sinusoidal_embedding_1d(self.freq_dim, t).float())
-            e0 = self.time_projection(e).unflatten(1, (6, self.dim))
+                sinusoidal_embedding_1d(self.freq_dim, t).float()) # e.shape = torch.Size([1, 1536])
+            e0 = self.time_projection(e).unflatten(1, (6, self.dim)) # e0.shape = torch.Size([1, 6, 1536])
             assert e.dtype == torch.float32 and e0.dtype == torch.float32
 
         # context
@@ -556,7 +566,9 @@ class WanModel(ModelMixin, ConfigMixin):
                 torch.cat(
                     [u, u.new_zeros(self.text_len - u.size(0), u.size(1))])
                 for u in context
-            ]))
+            ])) # context.shape = torch.Size([1, 512, 1536])
+        # text_len = 512 / u.shape = torch.Size([7, 4096]) 
+        # self.text_len - u.size(0) = 505 / u.size(1)) = 4096
 
         if clip_fea is not None:
             context_clip = self.img_emb(clip_fea)  # bs x 257 (x2) x dim
@@ -575,10 +587,12 @@ class WanModel(ModelMixin, ConfigMixin):
             x = block(x, **kwargs)
 
         # head
-        x = self.head(x, e)
+        x = self.head(x, e) 
+        # x.shape = torch.Size([1, 1560, 1536]) -> torch.Size([1, 1560, 64])
+        # 64 = 16 (out_dim) × 1 × 2 × 2 (patch_size)
 
         # unpatchify
-        x = self.unpatchify(x, grid_sizes)
+        x = self.unpatchify(x, grid_sizes) # len(x) = 1=BS / x[0].shape = torch.size([16, 1, 60, 104]))
         return [u.float() for u in x]
 
     def unpatchify(self, x, grid_sizes):
@@ -595,14 +609,22 @@ class WanModel(ModelMixin, ConfigMixin):
         Returns:
             List[Tensor]:
                 Reconstructed video tensors with shape [C_out, F, H / 8, W / 8]
+
+        f: number of patches along time,  f = 1
+        h: number of patches along height,  h = 30
+        w: number of patches along width,  w = 52
+        p: patch size along time,  p = 1
+        q: patch size along height,  q = 2
+        r: patch size along width,  r = 2
+        c: number of channels (out_dim),  c = 16
         """
 
         c = self.out_dim
         out = []
         for u, v in zip(x, grid_sizes.tolist()):
-            u = u[:math.prod(v)].view(*v, *self.patch_size, c)
+            u = u[:math.prod(v)].view(*v, *self.patch_size, c) # u.shape = [1560, 64] v = (1, 30, 52)  patch_size = (1, 2, 2) c = 16 // 64  →  (1 × 2 × 2 × 16)
             u = torch.einsum('fhwpqrc->cfphqwr', u)
-            u = u.reshape(c, *[i * j for i, j in zip(v, self.patch_size)])
+            u = u.reshape(c, *[i * j for i, j in zip(v, self.patch_size)]) # (c, f*p, h*q, w*r) = (16, 1, 60, 104)
             out.append(u)
         return out
 

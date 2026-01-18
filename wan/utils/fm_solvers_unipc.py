@@ -116,8 +116,8 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
             sigmas = shift * sigmas / (1 +
                                        (shift - 1) * sigmas)  # pyright: ignore
 
-        self.sigmas = sigmas
-        self.timesteps = sigmas * num_train_timesteps
+        self.sigmas = sigmas # tensor([0.9990, 0.9980, 0.9970 ... 0.0020, 0.0010, 0.0000]) / self.sigmas.shape = torch.Size([1000])
+        self.timesteps = sigmas * num_train_timesteps # tensor([999.0000, 998.0000, 997.0000, ...  1.0000,   0.0000])
 
         self.model_outputs = [None] * solver_order
         self.timestep_list = [None] * solver_order
@@ -130,8 +130,8 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
 
         self.sigmas = self.sigmas.to(
             "cpu")  # to avoid too much CPU/GPU communication
-        self.sigma_min = self.sigmas[-1].item()
-        self.sigma_max = self.sigmas[0].item()
+        self.sigma_min = self.sigmas[-1].item() # self.sigma_min = 0.0
+        self.sigma_max = self.sigmas[0].item() # self.sigma_max = 0.999
 
     @property
     def step_index(self):
@@ -205,14 +205,14 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
             )
 
         timesteps = sigmas * self.config.num_train_timesteps
-        sigmas = np.concatenate([sigmas, [sigma_last]
+        sigmas = np.concatenate([sigmas, [sigma_last] # sigma_last = 0
                                 ]).astype(np.float32)  # pyright: ignore
 
-        self.sigmas = torch.from_numpy(sigmas)
+        self.sigmas = torch.from_numpy(sigmas) # self.sigmas.shape = torch.Size([51]) / tensor([0.9998, 0.995, .. 0.0925, 0.0000])
         self.timesteps = torch.from_numpy(timesteps).to(
-            device=device, dtype=torch.int64)
+            device=device, dtype=torch.int64) # tensor([999, 995, 991, 987, ... 241, 172,  92])
 
-        self.num_inference_steps = len(timesteps)
+        self.num_inference_steps = len(timesteps) # 50
 
         self.model_outputs = [
             None,

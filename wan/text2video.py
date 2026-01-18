@@ -72,7 +72,8 @@ class WanT2V:
         self.text_encoder = T5EncoderModel(
             text_len=config.text_len,
             dtype=config.t5_dtype,
-            device=torch.device('cpu'),
+            device=self.device,
+            # device=torch.device('cpu'),
             checkpoint_path=os.path.join(checkpoint_dir, config.t5_checkpoint),
             tokenizer_path=os.path.join(checkpoint_dir, config.t5_tokenizer),
             shard_fn=shard_fn if t5_fsdp else None)
@@ -173,8 +174,10 @@ class WanT2V:
 
         if not self.t5_cpu:
             self.text_encoder.model.to(self.device)
-            context = self.text_encoder([input_prompt], self.device)
-            context_null = self.text_encoder([n_prompt], self.device)
+            context = self.text_encoder([input_prompt], self.device) # ex, input_prompt = "eautiful and cute korean girl"
+            # len(context) = 1, context[0].shape = torch.Size([7, 4096])
+            context_null = self.text_encoder([n_prompt], self.device) # ex, n_prompt = "色调艳丽，过曝，静态，细节模糊不清，字幕，风格"
+            # len(context_null) = 1, context_null[0].shape = torch.Size([126, 4096])
             if offload_model:
                 self.text_encoder.model.cpu()
         else:
@@ -193,12 +196,13 @@ class WanT2V:
                 device=self.device,
                 generator=seed_g)
         ]
+        # len(noise) = 1, noise[0].shape = torch.Size([16, 1, 60, 104])
 
         @contextmanager
         def noop_no_sync():
             yield
 
-        no_sync = getattr(self.model, 'no_sync', noop_no_sync)
+        no_sync = getattr(self.model, 'no_sync', noop_no_sync) # if fsdp, self.model has no_sync function, else (world_size = 1) noop_no_sync
 
         # evaluation mode
         with amp.autocast(dtype=self.param_dtype), torch.no_grad(), no_sync():
@@ -227,20 +231,23 @@ class WanT2V:
             # sample videos
             latents = noise
 
-            arg_c = {'context': context, 'seq_len': seq_len}
-            arg_null = {'context': context_null, 'seq_len': seq_len}
+            arg_c = {'context': context, 'seq_len': seq_len} # seq_len = 1560 (60/2 x 104/2)/ context[0].shape = torch.Size([7, 4096])
+            arg_null = {'context': context_null, 'seq_len': seq_len} # context_null[0].shape = torch.Size([126, 4096])
 
+            # timesteps = tensor([999, 995, 991, 987, 982, 978  ... 302, 241, 172,  92], device='cuda:0') // timesteps.shape = torch.Size([50])
             for _, t in enumerate(tqdm(timesteps)):
                 latent_model_input = latents
                 timestep = [t]
 
-                timestep = torch.stack(timestep)
+                timestep = torch.stack(timestep) # timestep = tensor([999], device='cuda:0')
 
                 self.model.to(self.device)
                 noise_pred_cond = self.model(
                     latent_model_input, t=timestep, **arg_c)[0]
+                # noise_pred_cond.shape = torch.Size([16, 1, 60, 104])
                 noise_pred_uncond = self.model(
                     latent_model_input, t=timestep, **arg_null)[0]
+                # noise_pred_uncond.shape = torch.Size([16, 1, 60, 104])
 
                 noise_pred = noise_pred_uncond + guide_scale * (
                     noise_pred_cond - noise_pred_uncond)

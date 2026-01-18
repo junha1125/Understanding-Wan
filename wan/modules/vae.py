@@ -508,12 +508,15 @@ class WanVAE_(nn.Module):
                                  attn_scales, self.temperal_upsample, dropout)
 
     def forward(self, x):
+        """
+        # GPT 에 의하면, log_var 이 의도적으로 encoder 함수에서 output 되지 않도록 설계됨. 따라서 이 forward 현재 사용못함
+        """
         mu, log_var = self.encode(x)
         z = self.reparameterize(mu, log_var)
         x_recon = self.decode(z)
         return x_recon, mu, log_var
 
-    def encode(self, x, scale):
+    def encode(self, x, scale): 
         self.clear_cache()
         ## cache
         t = x.shape[2]
