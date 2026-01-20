@@ -12,6 +12,12 @@ class NoisePredDiffTracker:
     # timesteps = tensor([999, 995, 991, 987, 982, 978  ... 302, 241, 172,  92], device='cuda:0') // timesteps.shape = torch.Size([50])
     # diff_tracker = NoisePredDiffTracker(metric="l1_mean") # (2)
 
+    context_empty = self.text_encoder([""], self.device)
+    context_zero = [torch.zeros_like(t) for t in context_empty]
+
+    arg_empty = {'context': context_empty, 'seq_len': seq_len}
+    arg_zero = {'context': context_zero, 'seq_len': seq_len}
+
     # # noise_pred_uncond.shape = torch.Size([16, 1, 60, 104]) 
     # noise_pred_empty = self.model(
     #     latent_model_input, t=timestep, **arg_empty)[0]

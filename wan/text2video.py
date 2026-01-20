@@ -64,6 +64,7 @@ class WanT2V:
         self.config = config
         self.rank = rank
         self.t5_cpu = t5_cpu
+        self.checkpoint_dir = checkpoint_dir
 
         self.num_train_timesteps = config.num_train_timesteps
         self.param_dtype = config.param_dtype
@@ -111,6 +112,7 @@ class WanT2V:
             self.model.to(self.device)
 
         self.sample_neg_prompt = config.sample_neg_prompt
+
 
     def generate(self,
                  input_prompt,
@@ -178,6 +180,10 @@ class WanT2V:
             # len(context) = 1, context[0].shape = torch.Size([7, 4096])
             context_null = self.text_encoder([n_prompt], self.device) # ex, n_prompt = "色调艳丽，过曝，静态，细节模糊不清，字幕，风格"
             # len(context_null) = 1, context_null[0].shape = torch.Size([126, 4096])
+            
+            # context_empty = self.text_encoder([""], self.device)
+            # len(context_empty) = 1, context_empty[0].shape = torch.Size([1, 4096])
+            # torch.save(context_empty[0].cpu(), os.path.join(self.checkpoint_dir, "context_empty.pt"))
             if offload_model:
                 self.text_encoder.model.cpu()
         else:

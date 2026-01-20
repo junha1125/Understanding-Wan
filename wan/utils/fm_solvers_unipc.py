@@ -185,7 +185,8 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
             sigmas = np.linspace(self.sigma_max, self.sigma_min,
                                  num_inference_steps +
                                  1).copy()[:-1]  # pyright: ignore
-
+            # sigmas.shape = torch.Size([50]) / tensor([[0.99900001 0.97902001 0.95904001 0.93906001 0.91908001 0.89910001 ... 0.15984  0.13986  0.11988  0.0999  0.07992  0.05994  0.03996  0.01998])
+            # (if) timesteps = sigmas * self.config.num_train_timesteps || array([999, 979, 959, 939 , 919, 899, 879, ... 99, 79, 59, 39, 19])
         if self.config.use_dynamic_shifting:
             sigmas = self.time_shift(mu, 1.0, sigmas)  # pyright: ignore
         else:
@@ -208,7 +209,7 @@ class FlowUniPCMultistepScheduler(SchedulerMixin, ConfigMixin):
         sigmas = np.concatenate([sigmas, [sigma_last] # sigma_last = 0
                                 ]).astype(np.float32)  # pyright: ignore
 
-        self.sigmas = torch.from_numpy(sigmas) # self.sigmas.shape = torch.Size([51]) / tensor([0.9998, 0.995, .. 0.0925, 0.0000])
+        self.sigmas = torch.from_numpy(sigmas) # self.sigmas.shape = torch.Size([51]) / tensor([0.9997 0.9957 0.9915 0.9871 0.9826  0.9780, .. 0.4051  0.3568 0.3028 0.2417 0.1722 0.0925])
         self.timesteps = torch.from_numpy(timesteps).to(
             device=device, dtype=torch.int64) # tensor([999, 995, 991, 987, ... 241, 172,  92])
 
